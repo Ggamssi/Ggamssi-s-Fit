@@ -61,7 +61,7 @@ const resultText = computed(() => {
       <p class="record-notes">{{ wod.shortfalls }}</p>
     </template>
 
-    <p class="category-label">처방 구성</p>
+    <p class="category-label">운동 구성</p>
     <p class="record-notes">{{ wod.prescription }}</p>
 
     <template v-if="wod.scaling === 'Scaled'">

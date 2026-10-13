@@ -9,6 +9,23 @@ export function createWod() {
   }
 }
 
+export const wodTemplates = [
+  { name: 'Fran', aliases: ['프란', 'fran'], type: 'FOR TIME', prescription: '21-15-9회\n스러스터 (처방 중량: 남성 95lb / 여성 65lb)\n풀업\n각 반복 구간에서 두 동작을 수행합니다. 개인 수행 중량과 Rx 여부는 직접 선택하세요.', target_rounds: 3 },
+  { name: 'Cindy', aliases: ['신디', 'cindy'], type: 'AMRAP', prescription: '20분 AMRAP\n한 라운드: 풀업 5회 + 푸시업 10회 + 맨몸 스쿼트 15회', time_limit: 20 },
+]
+
+export function clearWodResults(wod) {
+  const result = { ...createWod() }
+  for (const key of ['type', 'prescription', 'scaling', 'modifications', 'time_limit', 'total_minutes', 'target_rounds', 'time_cap']) {
+    if (wod[key] != null) result[key] = wod[key]
+  }
+  return result
+}
+
+export function templateWod(template, scaling = 'Rx') {
+  return { ...createWod(), type: template.type, prescription: template.prescription, time_limit: template.time_limit ?? '', target_rounds: template.target_rounds ?? '', scaling, modifications: '' }
+}
+
 function hasNumber(value, min, max, integer = true) {
   if (!['number', 'string'].includes(typeof value) || String(value).trim() === '') return false
   const number = Number(value)

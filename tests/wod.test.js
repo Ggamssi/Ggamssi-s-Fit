@@ -1,12 +1,33 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createWod, normalizeWod, validateWod } from '../src/lib/wod.js'
+import { clearWodResults, createWod, normalizeWod, templateWod, validateWod, wodTemplates } from '../src/lib/wod.js'
 import { normalizeRecord, readLocalRecords, summarizeRecords, validateRecord, writeLocalRecords } from '../src/lib/workouts.js'
 
 const amrap = () => ({ ...createWod(), prescription: '10 thrusters 35kg / 10 pull-ups', time_limit: '12', rounds: '5', extra_reps: '8' })
 const emom = () => ({ ...createWod(), type: 'EMOM', prescription: '홀수 분: 로잉 12cal\n짝수 분: 버피 10회', total_minutes: '15', intervals_completed: '13', status: 'partial', shortfalls: '14, 15분 버피 미달' })
 const forTime = () => ({ ...createWod(), type: 'FOR TIME', prescription: '5 rounds: 400m run, 15 squats', target_rounds: '5', time_cap: '15', finish_minutes: '9', finish_seconds: '42' })
 const wodRecord = (wod = amrap()) => ({ workout_date: '2026-10-13', name: '', category: '크로스핏 와드', body_parts: ['전신'], duration: '12', weight: '60', sets: '5', reps: '10', notes: '', record_type: 'wod', wod })
+
+test('Fran·Cindy 템플릿은 설정만 제공하고 결과와 변경 내용을 비운다', () => {
+  const fran = templateWod(wodTemplates[0], 'Scaled')
+  assert.equal(fran.type, 'FOR TIME')
+  assert.match(fran.prescription, /21-15-9/)
+  assert.match(fran.prescription, /95lb/)
+  assert.equal(fran.scaling, 'Scaled')
+  assert.equal(fran.modifications, '')
+  assert.equal(fran.finish_minutes, '')
+  const cindy = templateWod(wodTemplates[1])
+  assert.equal(cindy.time_limit, 20)
+  assert.equal(cindy.type, 'AMRAP')
+  assert.match(cindy.prescription, /풀업 5회/)
+  assert.equal(cindy.rounds, '')
+  const source = { ...emom(), scaling: 'Scaled', modifications: '로잉 대신 바이크' }
+  const cleared = clearWodResults(source)
+  assert.equal(cleared.modifications, source.modifications)
+  assert.equal(cleared.intervals_completed, '')
+  assert.equal(cleared.total_minutes, '15')
+  assert.equal(source.intervals_completed, '13')
+})
 
 test('와드 모든 방식과 결과를 숫자로 정규화하고 기본 이름을 제공한다', () => {
   for (const wod of [amrap(), emom(), forTime(), { ...createWod(), type: '기타', prescription: '팀 와드', result: '팀 합계 150회' }]) {

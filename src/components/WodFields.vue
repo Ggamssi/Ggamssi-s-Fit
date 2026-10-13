@@ -1,5 +1,6 @@
 <script setup>
 import { computed } from 'vue'
+import { stepNumber } from '../lib/workouts.js'
 
 const props = defineProps({
   wod: { type: Object, required: true },
@@ -63,9 +64,9 @@ function changeType(newType) {
     </fieldset>
 
     <fieldset :disabled="busy">
-      <legend>처방과 수행 기준</legend>
+      <legend>와드 구성</legend>
       <label>
-        처방 구성 (필수)
+        운동 구성 (필수)
         <textarea
           v-model="wod.prescription"
           required
@@ -74,6 +75,11 @@ function changeType(newType) {
           placeholder="예: 10회 스러스터 43kg / 95lb + 200m 달리기"
         ></textarea>
       </label>
+      <p class="field-hint">원래 정해진 동작·횟수·중량·거리를 적어주세요. 중량은 kg 또는 lb 단위를 함께 표시해주세요.</p>
+    </fieldset>
+
+    <fieldset :disabled="busy">
+      <legend>수행 기준</legend>
       <div class="selection-chips" role="group" aria-label="수행 기준">
         <button
           v-for="scaling in scalings"
@@ -86,6 +92,7 @@ function changeType(newType) {
           {{ scaling }}
         </button>
       </div>
+      <p class="field-hint">Rx: 정해진 구성 그대로 수행 · Scaled: 동작·중량·횟수 등을 조정해 수행</p>
       <label v-if="wod.scaling === 'Scaled'">
         실제 변경 내용 (필수)
         <textarea
@@ -93,7 +100,7 @@ function changeType(newType) {
           required
           maxlength="3000"
           rows="3"
-          placeholder="실제로 수행한 동작, 반복 수, 무게 또는 거리 변경을 적어 주세요."
+          placeholder="예: 스러스터 95lb → 65lb, 풀업 → 링로우"
         ></textarea>
       </label>
     </fieldset>
@@ -103,27 +110,43 @@ function changeType(newType) {
       <div class="form-grid">
         <label v-if="wod.type === 'AMRAP'">
           제한 시간 (분, 필수)
-          <input v-model.number="wod.time_limit" type="number" min="0.1" max="1440" step="0.1" required />
+          <div class="number-stepper">
+            <button type="button" aria-label="제한 시간 (분, 필수) 감소" @click="wod.time_limit = stepNumber(wod.time_limit, -1, 0.1, 1440, 0.1)">−</button>
+            <input v-model.number="wod.time_limit" aria-label="제한 시간 (분, 필수)" type="number" inputmode="decimal" min="0.1" max="1440" step="0.1" required />
+            <button type="button" aria-label="제한 시간 (분, 필수) 증가" @click="wod.time_limit = stepNumber(wod.time_limit, 1, 0.1, 1440, 0.1)">+</button>
+          </div>
         </label>
         <label v-if="wod.type === 'EMOM'">
           총 시간 / 구간 수 (필수)
-          <input v-model.number="wod.total_minutes" type="number" min="1" max="1440" step="1" required />
+          <div class="number-stepper">
+            <button type="button" aria-label="총 시간 / 구간 수 (필수) 감소" @click="wod.total_minutes = stepNumber(wod.total_minutes, -1, 1, 1440)">−</button>
+            <input v-model.number="wod.total_minutes" aria-label="총 시간 / 구간 수 (필수)" type="number" inputmode="numeric" min="1" max="1440" step="1" required />
+            <button type="button" aria-label="총 시간 / 구간 수 (필수) 증가" @click="wod.total_minutes = stepNumber(wod.total_minutes, 1, 1, 1440)">+</button>
+          </div>
         </label>
         <template v-if="wod.type === 'FOR TIME'">
           <label>
             목표 라운드 (선택)
-            <input v-model.number="wod.target_rounds" type="number" min="1" max="1000" step="1" />
+            <div class="number-stepper">
+              <button type="button" aria-label="목표 라운드 (선택) 감소" @click="wod.target_rounds = stepNumber(wod.target_rounds, -1, 1, 1000)">−</button>
+              <input v-model.number="wod.target_rounds" aria-label="목표 라운드 (선택)" type="number" inputmode="numeric" min="1" max="1000" step="1" />
+              <button type="button" aria-label="목표 라운드 (선택) 증가" @click="wod.target_rounds = stepNumber(wod.target_rounds, 1, 1, 1000)">+</button>
+            </div>
           </label>
           <label>
             타임캡 (분, 선택)
-            <input v-model.number="wod.time_cap" type="number" min="0.1" max="1440" step="0.1" :required="wod.status === 'time_cap'" />
+            <div class="number-stepper">
+              <button type="button" aria-label="타임캡 (분, 선택) 감소" @click="wod.time_cap = stepNumber(wod.time_cap, -1, 0.1, 1440, 0.1)">−</button>
+              <input v-model.number="wod.time_cap" aria-label="타임캡 (분, 선택)" type="number" inputmode="decimal" min="0.1" max="1440" step="0.1" :required="wod.status === 'time_cap'" />
+              <button type="button" aria-label="타임캡 (분, 선택) 증가" @click="wod.time_cap = stepNumber(wod.time_cap, 1, 0.1, 1440, 0.1)">+</button>
+            </div>
           </label>
         </template>
       </div>
     </fieldset>
 
     <fieldset :disabled="busy">
-      <legend>수행 결과</legend>
+      <legend>수행 결과 · {{ wod.type }}</legend>
       <div
         v-if="wod.type === 'EMOM' || wod.type === 'FOR TIME'"
         class="selection-chips"
@@ -146,11 +169,19 @@ function changeType(newType) {
         <div class="form-grid">
           <label>
             완료 라운드 (필수)
-            <input v-model.number="wod.rounds" type="number" min="0" max="1000" step="1" required />
+            <div class="number-stepper">
+              <button type="button" aria-label="완료 라운드 (필수) 감소" @click="wod.rounds = stepNumber(wod.rounds, -1, 0, 1000)">−</button>
+              <input v-model.number="wod.rounds" aria-label="완료 라운드 (필수)" type="number" inputmode="numeric" min="0" max="1000" step="1" required />
+              <button type="button" aria-label="완료 라운드 (필수) 증가" @click="wod.rounds = stepNumber(wod.rounds, 1, 0, 1000)">+</button>
+            </div>
           </label>
           <label>
             추가 반복 수 (필수)
-            <input v-model.number="wod.extra_reps" type="number" min="0" max="100000" step="1" required />
+            <div class="number-stepper">
+              <button type="button" aria-label="추가 반복 수 (필수) 감소" @click="wod.extra_reps = stepNumber(wod.extra_reps, -1, 0, 100000)">−</button>
+              <input v-model.number="wod.extra_reps" aria-label="추가 반복 수 (필수)" type="number" inputmode="numeric" min="0" max="100000" step="1" required />
+              <button type="button" aria-label="추가 반복 수 (필수) 증가" @click="wod.extra_reps = stepNumber(wod.extra_reps, 1, 0, 100000)">+</button>
+            </div>
           </label>
         </div>
         <p v-if="wod.type === 'AMRAP'" class="record-notes">
@@ -173,7 +204,11 @@ function changeType(newType) {
         </p>
         <label>
           목표를 달성한 구간 수 (필수)
-          <input v-model.number="wod.intervals_completed" type="number" min="0" max="1440" step="1" required />
+          <div class="number-stepper">
+            <button type="button" aria-label="목표를 달성한 구간 수 (필수) 감소" @click="wod.intervals_completed = stepNumber(wod.intervals_completed, -1, 0, Number(wod.total_minutes) || 1440)">−</button>
+            <input v-model.number="wod.intervals_completed" aria-label="목표를 달성한 구간 수 (필수)" type="number" inputmode="numeric" min="0" max="1440" step="1" required />
+            <button type="button" aria-label="목표를 달성한 구간 수 (필수) 증가" @click="wod.intervals_completed = stepNumber(wod.intervals_completed, 1, 0, Number(wod.total_minutes) || 1440)">+</button>
+          </div>
         </label>
         <label v-if="wod.status === 'partial' || wod.status === 'stopped'">
           미달 / 중도 종료 내용 (필수)
@@ -194,11 +229,19 @@ function changeType(newType) {
         <div v-if="wod.status === 'completed'" class="form-grid">
           <label>
             완주 시간 (분, 필수)
-            <input v-model.number="wod.finish_minutes" type="number" min="0" max="1440" step="1" required />
+            <div class="number-stepper">
+              <button type="button" aria-label="완주 시간 (분, 필수) 감소" @click="wod.finish_minutes = stepNumber(wod.finish_minutes, -1, 0, 1440)">−</button>
+              <input v-model.number="wod.finish_minutes" aria-label="완주 시간 (분, 필수)" type="number" inputmode="numeric" min="0" max="1440" step="1" required />
+              <button type="button" aria-label="완주 시간 (분, 필수) 증가" @click="wod.finish_minutes = stepNumber(wod.finish_minutes, 1, 0, 1440)">+</button>
+            </div>
           </label>
           <label>
             완주 시간 (초, 필수)
-            <input v-model.number="wod.finish_seconds" type="number" min="0" max="59" step="1" required />
+            <div class="number-stepper">
+              <button type="button" aria-label="완주 시간 (초, 필수) 감소" @click="wod.finish_seconds = stepNumber(wod.finish_seconds, -1, 0, 59)">−</button>
+              <input v-model.number="wod.finish_seconds" aria-label="완주 시간 (초, 필수)" type="number" inputmode="numeric" min="0" max="59" step="1" required />
+              <button type="button" aria-label="완주 시간 (초, 필수) 증가" @click="wod.finish_seconds = stepNumber(wod.finish_seconds, 1, 0, 59)">+</button>
+            </div>
           </label>
         </div>
       </template>

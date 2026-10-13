@@ -176,9 +176,40 @@ legend small { margin-left: 10px; color: #949d86; font-weight: 400; font-size: 1
 .wod-fields fieldset > * + * { margin-top: 12px; }
 .wod-details { margin-top: 12px; }
 .wod-details > .category-label { display: inline-block; margin-top: 12px; }
+.exercise-options { display: flex; flex-direction: column; max-height: 260px; overflow-y: auto; overscroll-behavior: contain; min-width: 0; border: 1px solid #dde3d3; border-radius: 8px; box-shadow: 0 8px 24px #1720101a; }
+.exercise-options button { flex-shrink: 0; min-width: 0; padding: 13px 14px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: white; text-align: left; font-size: 13px; overflow-wrap: anywhere; }
+.exercise-options button:last-child { border-bottom: 0; }
+.exercise-options button small { display: block; margin-top: 5px; font-size: 11px; color: var(--muted); }
+.exercise-options button:hover:not(:disabled), .exercise-options button[aria-selected="true"] { background: #eaf3d8; color: #536d2e; }
+.exercise-options > .field-hint { padding: 13px 14px; }
+.set-fields > .field-hint { margin: 0 0 12px; }
+.set-row { display: grid; grid-template-columns: 42px minmax(0, 1fr) 32px; align-items: center; gap: 8px; padding: 8px; margin-bottom: 6px; border: 1px solid var(--line); border-radius: 6px; background: #fafbf8; }
+.set-row-heading { display: contents; }
+.set-row-heading strong { font-size: 12px; white-space: nowrap; }
+.set-row-heading > button { grid-column: 3; grid-row: 1; min-height: 44px; padding: 0; font-size: 20px; }
+.set-inputs { grid-column: 2; grid-row: 1; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.form-dialog .set-inputs label { gap: 4px; font-size: 11px; }
+.set-inputs .number-stepper { gap: 2px; }
+.set-inputs .number-stepper button { flex-basis: 32px; width: 32px; font-size: 18px; }
+.set-inputs > *, .form-grid > * { min-width: 0; }
+.set-inputs input { text-align: center; font-variant-numeric: tabular-nums; padding-left: 6px; padding-right: 6px; }
+.set-inputs input::-webkit-inner-spin-button, .set-inputs input::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+.set-inputs input[type="number"] { -moz-appearance: textfield; appearance: textfield; }
+.number-stepper { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.number-stepper input { flex: 1; min-width: 0; width: 0; }
+.number-stepper button { flex: 0 0 44px; width: 44px; height: 44px; padding: 0; border: 1px solid #dde3d3; border-radius: 6px; background: #f0f3ea; font-size: 20px; }
+.record-sets { display: flex; flex-direction: column; gap: 6px; padding-left: 18px; margin: 10px 0 0; font-size: 12px; line-height: 1.8; color: #667455; overflow-wrap: anywhere; }
+.template-options { display: flex; flex-wrap: wrap; gap: 7px; }
+.template-options button { padding: 9px 12px; border: 1px solid #e0e5d7; border-radius: 5px; background: white; font-size: 12px; }
+.copy-note { font-size: 11px; line-height: 1.8; color: #737d69; overflow-wrap: anywhere; }
+
+@media (max-width: 480px) { .set-row { grid-template-columns: minmax(0, 1fr) 32px; row-gap: 2px; padding-top: 2px; } .set-row-heading > button { grid-column: 2; min-height: 32px; } .set-inputs { grid-column: 1 / -1; grid-row: 2; } .number-stepper input { padding-left: 4px; padding-right: 4px; } }
 
 @media (min-width: 1440px) { .art-word { font-size: 88px; } }
 @media (max-width: 1050px) { .site-header { gap: 25px; } nav { gap: 18px; } main { padding-left: 4%; padding-right: 4%; } .site-header { padding: 0 4%; } .hero-copy { padding: 36px 30px; } .art-word { left: 25px; } .art-bottom { left: 30px; font-size: 8px; letter-spacing: 1px; } .content-grid { gap: 22px; grid-template-columns: minmax(0, 1fr) 280px; } .stat-card { padding: 18px; } .stat-card small { font-size: 9px; } .filter-tabs { gap: 0; } .filter-tabs button { padding-left: 11px; padding-right: 11px; } }
 @media (max-width: 760px) { .site-header { height: 80px; gap: 15px; flex-wrap: wrap; } .brand { font-size: 22px; } .brand-mark { width: 36px; height: 36px; font-size: 27px; } nav { display: none; } .account-email { display: none; } .demo-badge { font-size: 9px; padding: 7px 9px; } main { padding-top: 22px; } .hero { grid-template-columns: 1fr; } .hero-copy { padding: 32px 25px; } h1 { font-size: 33px; } .hero-art { position: absolute; right: 0; bottom: 0; width: 180px; min-height: 180px; opacity: .16; pointer-events: none; } .art-word { top: 70px; left: 5px; font-size: 44px; letter-spacing: -2px; } .art-bottom, .art-index, .art-cross { display: none; } .hero-description { font-size: 12px; } .mode-note { font-size: 10px; align-items: flex-start; } .overview { margin-top: 20px; } h2 { font-size: 20px; } .eyebrow { font-size: 8px; letter-spacing: 1.3px; } .month-control { gap: 0; } .month-control > span { display: none; } .month-control input { font-size: 11px; padding: 8px; max-width: 150px; } .stats-grid { grid-template-columns: 1fr 1fr; gap: 10px; } .stat-card { padding: 18px; } .stat-card strong { font-size: 32px; } .stat-card strong.part-value { font-size: 25px; } .stat-label { font-size: 11px; } .content-grid { grid-template-columns: 1fr; margin-top: 34px; } .sidebar { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; } .calendar-panel, .balance-panel { padding: 17px; } .calendar-panel .section-heading { flex-wrap: wrap; gap: 8px; } .calendar-legend { font-size: 8px; } .sidebar h3 { font-size: 13px; } .body-row { gap: 8px; } .panel-description, .balance-note, .calendar-hint { font-size: 9px; } .quote-panel { grid-column: 1 / -1; } .quote-panel p br { display: none; } .quote-panel small { margin-top: 8px; } .record-card { padding: 16px; gap: 12px; } footer { flex-wrap: wrap; gap: 10px 18px; } footer small { display: none; } .form-dialog { padding: 23px; } .message { font-size: 11px; } }
 @media (max-width: 380px) { h1 { font-size: 28px; } .sidebar { grid-template-columns: 1fr; } .stat-card { padding: 14px; } .stat-card small { font-size: 8px; } .filter-tabs button { padding: 12px 10px; } }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } *, *::before, *::after { transition: none !important; } }
+
+.exercise-combobox { position: relative; }
+.exercise-combobox .exercise-options { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 5; background: white; }

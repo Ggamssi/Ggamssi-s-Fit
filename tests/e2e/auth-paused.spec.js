@@ -1,9 +1,9 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './db.js'
 
 test('인증 창은 유지하지만 제출과 Supabase 요청은 중단한다', async ({ page }) => {
   const requests = []
   page.on('request', (request) => {
-    if (request.url().includes('.supabase.co')) requests.push(request.url())
+    if (request.url().includes('/auth/')) requests.push(request.url())
   })
   await page.goto('/')
   await page.getByRole('button', { name: '로그인 / 가입', exact: true }).click()
@@ -27,6 +27,6 @@ test('인증 창은 유지하지만 제출과 Supabase 요청은 중단한다', 
   await expect(page.locator('dialog[open]')).toContainText('오늘 어떤 움직임을 만들었나요?')
   await page.getByRole('button', { name: '기록 창 닫기' }).click()
   await page.reload()
-  await expect(page.getByText('로컬 체험 모드')).toBeVisible()
+  await expect(page.getByText('공용 DB 모드', { exact: true })).toBeVisible()
   expect(requests).toEqual([])
 })

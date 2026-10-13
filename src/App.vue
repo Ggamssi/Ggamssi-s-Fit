@@ -1,8 +1,9 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
-import { authEnabled, supabase } from './lib/supabase.js'
-import { bodyParts, categories, localDate, normalizeRecord, readLocalRecords, summarizeRecords, validateRecord, writeLocalRecords } from './lib/workouts.js'
-import { createWod } from './lib/wod.js'
+import { authEnabled, publicOwner, recordColumns, recordsTable, supabase } from './lib/supabase.js'
+import { bodyParts, categories, copyConfiguration, localDate, normalizeRecord, previousConfigurations, readFavorites, recentExercises, stepNumber, summarizeRecords, validateRecord, writeFavorites } from './lib/workouts.js'
+import { canonicalName, catalogItem, exerciseSuggestions, favoriteKey } from './lib/exerciseCatalog.js'
+import { createWod, templateWod, wodTemplates } from './lib/wod.js'
 import WodFields from './components/WodFields.vue'
 import WodDetails from './components/WodDetails.vue'
 
@@ -15,6 +16,20 @@ const user = ref(null)
 const loading = ref(true)
 const busy = ref(false)
 const loadFailed = ref(false)
+const catalog = ref([])
+const catalogError = ref('')
+const history = ref([])
+const historyError = ref('')
+const favorites = ref([])
+const favoritesError = ref('')
+const searchOpen = ref(false)
+const searchIndex = ref(-1)
+const copying = ref(false)
+const copyNotice = ref('')
+const copyCandidates = ref([])
+const favoritesFailed = ref(false)
+let mappedName = ''
+let historyVersion = 0
 const error = ref('')
 const notice = ref('')
 const formError = ref('')
@@ -25,7 +40,7 @@ const nameInput = ref(null)
 const emailInput = ref(null)
 const authMode = ref('login')
 const credentials = reactive({ email: '', password: '' })
-const form = reactive({ workout_date: today.value, name: '', category: '웨이트', body_parts: [], duration: '', weight: '', sets: '', reps: '', notes: '', record_type: 'exercise', wod: createWod() })
+const form = reactive({ workout_date: today.value, name: '', category: '웨이트', body_parts: [], duration: '', weight: '', sets: '', reps: '', set_entries: [], notes: '', record_type: 'exercise', wod: createWod() })
 let subscription
 let requestVersion = 0
 let clock
@@ -54,9 +69,149 @@ const calendar = computed(() => {
 const recordedDays = computed(() => new Set(monthRecords.value.map((record) => record.workout_date)))
 const topPart = computed(() => [...summary.value.parts].sort((a, b) => b.count - a.count)[0])
 const monthLabel = computed(() => `${Number(selectedMonth.value.slice(5))}월의 움직임`)
+const suggestions = computed(() => exerciseSuggestions(catalog.value, recentExercises(history.value).map(catalogItem), favorites.value, form.name))
+const searchVisible = computed(() => form.record_type === 'exercise' && searchOpen.value && !!form.name.trim())
+const currentExercise = computed(() => catalog.value.find((item) => canonicalName(item.name) === canonicalName(form.name)) || catalogItem({ name: form.name, category: form.category, body_parts: form.body_parts }))
+const isFavorite = computed(() => favorites.value.some((item) => item.key === favoriteKey(currentExercise.value)))
+const templates = computed(() => wodTemplates.filter((item) => !form.name.trim() || [item.name, ...item.aliases].some((name) => name.toLowerCase().includes(form.name.trim().toLowerCase()))))
+
+function chooseTemplate(template) {
+  if (busy.value) return
+  if (Object.entries(form.wod).some(([key, value]) => !['type', 'scaling', 'status'].includes(key) && value !== '' && value != null)
+    && !window.confirm('작성한 와드 구성을 템플릿으로 교체할까요? 수행 결과와 실제 변경 내용은 초기화됩니다.')) return
+  const scaling = form.wod.scaling
+  form.name = template.name
+  form.wod = templateWod(template, scaling)
+  formError.value = ''
+}
+
+function chooseExercise(item) {
+  if (item.reason) return
+  form.name = item.name
+  form.category = item.category
+  form.body_parts = [...item.body_parts]
+  mappedName = canonicalName(item.name)
+  searchOpen.value = false
+  searchIndex.value = -1
+}
+
+function confirmName() {
+  if (form.record_type !== 'exercise' || mappedName === canonicalName(form.name)) return
+  const item = catalog.value.find((entry) => canonicalName(entry.name) === canonicalName(form.name))
+  if (item && !item.reason) chooseExercise(item)
+}
+
+function nameChanged(event) {
+  form.name = event.target.value
+  searchOpen.value = form.record_type === 'exercise'
+  searchIndex.value = -1
+}
+
+function nameKeydown(event) {
+  if (event.isComposing || event.keyCode === 229) return
+  if (form.record_type !== 'exercise' || !form.name.trim()) return
+  if (event.key === 'Escape') {
+    if (searchOpen.value) event.preventDefault()
+    searchOpen.value = false
+  } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault()
+    searchOpen.value = true
+    const length = suggestions.value.length
+    searchIndex.value = length ? (searchIndex.value + (event.key === 'ArrowDown' ? 1 : -1) + length) % length : -1
+  } else if (event.key === 'Enter' && searchOpen.value) {
+    event.preventDefault()
+    const item = suggestions.value[searchIndex.value]
+    if (item) chooseExercise(item)
+    else { confirmName(); searchOpen.value = false }
+  }
+}
+
+function toggleFavorite() {
+  if (favoritesFailed.value) return
+  const item = currentExercise.value
+  if (item.reason) { favoritesError.value = item.reason; return }
+  const key = favoriteKey(item)
+  const result = isFavorite.value ? favorites.value.filter((entry) => entry.key !== key) : [...favorites.value, { ...item, key }]
+  try {
+    writeFavorites(window.localStorage, result)
+    favorites.value = result
+    favoritesError.value = ''
+  } catch { favoritesError.value = '즐겨찾기를 저장하지 못했습니다. 브라우저 저장소 권한을 확인해주세요.' }
+}
+
+async function loadPrevious() {
+  if (busy.value || copying.value) return
+  copying.value = true
+  copyNotice.value = ''
+  copyCandidates.value = []
+  const selection = { name: form.name, record_type: form.record_type, workout_date: form.workout_date }
+  try {
+    if (!await loadHistory(selection.workout_date)) { copyNotice.value = '이전 구성을 DB에서 불러오지 못했습니다. 다시 시도해주세요.'; return }
+    if (Object.keys(selection).some((key) => form[key] !== selection[key])) return
+    const candidates = previousConfigurations(history.value, selection)
+    if (!candidates.length) { copyNotice.value = '선택 날짜 이전에 같은 운동의 기록이 없습니다.'; return }
+    if (form.record_type === 'wod') copyCandidates.value = candidates
+    else applyPrevious(candidates[0])
+  } finally { copying.value = false }
+}
+
+function applyPrevious(record) {
+  if (busy.value) return
+  const detail = record.record_type === 'wod' ? `\n${record.wod.prescription}` : ''
+  if (!window.confirm(`${record.workout_date}의 ${record.name} 구성을 불러올까요?${detail}\n현재 구성은 교체되고 수행 결과는 초기화됩니다. 날짜·운동 시간·메모는 유지됩니다.`)) return
+  const copied = copyConfiguration(record)
+  Object.assign(form, copied.values)
+  if (form.record_type === 'exercise') form.set_entries = form.set_entries.map((entry) => ({ ...entry, completed: true }))
+  mappedName = canonicalName(form.name)
+  copyNotice.value = `${record.workout_date} 구성 불러옴. ${copied.warning || '오늘의 수행 내용을 확인해주세요.'}`
+  copyCandidates.value = []
+  formError.value = ''
+}
+
+async function loadHistory(date = today.value) {
+  const version = ++historyVersion
+  historyError.value = ''
+  try {
+    if (!supabase) throw new Error('DB 미설정')
+    const result = []
+    for (let offset = 0; ; offset += 500) {
+      const { data, error: queryError } = await supabase.from(recordsTable).select(recordColumns)
+        .eq('user_id', publicOwner).lte('workout_date', date)
+        .order('workout_date', { ascending: false }).order('created_at', { ascending: false }).order('id').range(offset, offset + 499)
+      if (version !== historyVersion) return false
+      if (queryError) throw queryError
+      result.push(...data)
+      if (data.length < 500) break
+    }
+    history.value = result
+    return true
+  } catch {
+    if (version === historyVersion) { history.value = []; historyError.value = '최근 운동 이력을 불러오지 못했습니다. 다시 시도해주세요.' }
+    return false
+  }
+}
 
 function displayDate(date) {
   return new Date(`${date}T12:00:00`).toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', weekday: 'long' })
+}
+
+async function loadCatalog() {
+  catalogError.value = ''
+  try {
+    if (!supabase) throw new Error('DB 미설정')
+    const result = []
+    for (let offset = 0; ; offset += 500) {
+      const { data, error: queryError } = await supabase.from('exercises').select('id,name,category,target_parts,created_at')
+        .order('name').order('id').range(offset, offset + 499)
+      if (queryError) throw queryError
+      result.push(...data)
+      if (data.length < 500) break
+    }
+    catalog.value = result.map(catalogItem)
+  } catch {
+    catalog.value = []
+    catalogError.value = '운동 목록을 불러오지 못했습니다. 직접 이름 입력은 가능합니다.'
+  }
 }
 
 async function loadRecords() {
@@ -66,14 +221,13 @@ async function loadRecords() {
   error.value = ''
   try {
     let result = []
-    if (!supabase) {
-      result = readLocalRecords(window.localStorage)
-    } else if (user.value) {
+    if (!supabase) throw new Error('DB 미설정')
+    {
       const [year, month] = selectedMonth.value.split('-').map(Number)
       const end = localDate(new Date(year, month, 1))
       for (let offset = 0; ; offset += 500) {
-        const { data, error: queryError } = await supabase.from('exercise_records').select('*')
-          .eq('user_id', user.value.id).gte('workout_date', `${selectedMonth.value}-01`).lt('workout_date', end)
+        const { data, error: queryError } = await supabase.from(recordsTable).select(recordColumns)
+          .eq('user_id', publicOwner).gte('workout_date', `${selectedMonth.value}-01`).lt('workout_date', end)
           .order('workout_date', { ascending: false }).order('created_at', { ascending: false }).order('id')
           .range(offset, offset + 499)
         if (queryError) throw queryError
@@ -87,7 +241,7 @@ async function loadRecords() {
     if (version === requestVersion) {
       records.value = []
       loadFailed.value = true
-      error.value = supabase ? '기록을 불러오지 못했습니다. Supabase 연결과 테이블 설정을 확인하고 다시 시도해주세요.' : '브라우저 저장소를 읽을 수 없습니다. 저장소 권한 또는 기존 데이터를 확인해주세요. 기존 기록 보호를 위해 새 기록 저장을 중단했습니다.'
+      error.value = supabase ? '기록을 불러오지 못했습니다. Supabase 연결·공용 모드 마이그레이션·RLS 설정을 확인하고 다시 시도해주세요.' : 'DB 미설정: Supabase URL과 공개 키를 설정해주세요. 기록 저장은 중단되며 기존 브라우저 기록은 그대로 보존됩니다.'
     }
   } finally {
     if (version === requestVersion) loading.value = false
@@ -96,9 +250,15 @@ async function loadRecords() {
 
 async function openRecord() {
   today.value = localDate()
-  if (supabase && !user.value) return openAuth()
-  Object.assign(form, { workout_date: selectedDay.value || today.value, name: '', category: '웨이트', body_parts: [], duration: '', weight: '', sets: '', reps: '', notes: '', record_type: 'exercise', wod: createWod() })
+  if (!supabase || loading.value || loadFailed.value) return
+  Object.assign(form, { workout_date: selectedDay.value || today.value, name: '', category: '웨이트', body_parts: [], duration: '', weight: '', sets: '', reps: '', set_entries: [], notes: '', record_type: 'exercise', wod: createWod() })
   formError.value = ''
+  mappedName = ''
+  searchOpen.value = false
+  searchIndex.value = -1
+  copyNotice.value = ''
+  copyCandidates.value = []
+  loadHistory(form.workout_date)
   recordDialog.value.showModal()
   await nextTick()
   nameInput.value.focus()
@@ -114,7 +274,10 @@ function selectRecordType(type) {
   form.weight = ''
   form.sets = ''
   form.reps = ''
+  form.set_entries = type === 'wod' ? null : []
   formError.value = ''
+  searchOpen.value = false
+  mappedName = ''
 }
 
 async function saveRecord() {
@@ -128,15 +291,9 @@ async function saveRecord() {
   busy.value = true
   try {
     const payload = normalizeRecord(form)
-    if (supabase) {
-      if (!user.value) throw new Error('로그인이 필요합니다.')
-      const { error: saveError } = await supabase.from('exercise_records').insert({ ...payload, user_id: user.value.id })
-      if (saveError) throw saveError
-    } else {
-      const result = [{ ...payload, id: crypto.randomUUID(), created_at: new Date().toISOString() }, ...records.value]
-      writeLocalRecords(window.localStorage, result)
-      records.value = result
-    }
+    if (!supabase) throw new Error('DB 미설정')
+    const { error: saveError } = await supabase.from(recordsTable).insert({ ...payload, user_id: publicOwner })
+    if (saveError) throw saveError
     selectedDay.value = ''
     selectedCategory.value = '전체'
     const month = payload.workout_date.slice(0, 7)
@@ -145,7 +302,7 @@ async function saveRecord() {
     notice.value = '오늘의 노력이 기록되었습니다. 잘하셨어요!'
     recordDialog.value.close()
   } catch {
-    formError.value = '저장하지 못했습니다. 연결 상태 또는 브라우저 저장 공간을 확인하고 다시 시도해주세요.'
+    formError.value = 'DB에 저장하지 못했습니다. 연결·테이블 권한을 확인하고 다시 시도해주세요. 입력 내용은 유지됩니다.'
   } finally {
     busy.value = false
   }
@@ -156,12 +313,9 @@ async function deleteRecord(record) {
   busy.value = true
   error.value = ''
   try {
-    if (supabase) {
-      const { data, error: deleteError } = await supabase.from('exercise_records').delete().eq('id', record.id).eq('user_id', user.value.id).select('id')
-      if (deleteError || !data.length) throw deleteError || new Error('삭제 권한이 없습니다.')
-    } else {
-      writeLocalRecords(window.localStorage, records.value.filter((item) => item.id !== record.id))
-    }
+    if (!supabase) throw new Error('DB 미설정')
+    const { data, error: deleteError } = await supabase.from(recordsTable).delete().eq('id', record.id).eq('user_id', publicOwner).select('id')
+    if (deleteError || !data.length) throw deleteError || new Error('삭제 권한이 없습니다.')
     records.value = records.value.filter((item) => item.id !== record.id)
     notice.value = '운동 기록을 삭제했습니다.'
   } catch {
@@ -219,7 +373,7 @@ watch(selectedMonth, (value, previous) => {
 
 onMounted(async () => {
   clock = window.setInterval(() => { today.value = localDate() }, 60000)
-  if (supabase) {
+  if (authEnabled && supabase) {
     subscription = supabase.auth.onAuthStateChange((_event, session) => {
       const nextUser = session?.user ?? null
       if (nextUser?.id !== user.value?.id) {
@@ -234,13 +388,15 @@ onMounted(async () => {
     if (sessionError) error.value = '로그인 상태를 확인하지 못했습니다. 다시 로그인해주세요.'
     user.value = data.session?.user ?? null
   }
-  await loadRecords()
+  try { favorites.value = readFavorites(window.localStorage) } catch { favoritesFailed.value = true; favoritesError.value = '즐겨찾기를 읽을 수 없습니다. 기존 저장값은 덮어쓰지 않습니다.' }
+  await Promise.all([loadRecords(), loadCatalog(), loadHistory()])
 })
 
 onUnmounted(() => {
   subscription?.unsubscribe()
   window.clearInterval(clock)
   ++requestVersion
+  ++historyVersion
 })
 </script>
 
@@ -251,7 +407,7 @@ onUnmounted(() => {
       <nav aria-label="주 메뉴"><a class="nav-active" href="#journal">운동 다이어리</a><a href="#balance">나의 운동 밸런스</a></nav>
       <div class="account">
         <span v-if="user" class="account-email">{{ user.email }}</span><button class="button button-small button-outline" :disabled="busy" @click="user ? logout() : openAuth()">{{ user ? '로그아웃' : '로그인 / 가입' }}</button>
-        <span v-if="!supabase" class="demo-badge"><span></span> 로컬 체험 모드</span>
+        <span class="demo-badge"><span></span> {{ supabase ? '공용 DB 모드' : 'DB 미설정' }}</span>
       </div>
     </header>
 
@@ -261,8 +417,7 @@ onUnmounted(() => {
         <div class="hero-art" aria-hidden="true"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="art-cross">+</div><div class="art-word">KEEP<br>MOVING<span>.</span></div><span class="art-bottom">ONE DAY. ONE REP. ONE STEP FORWARD.</span><span class="art-index">Ggamssi`s-Fit / TRAINING JOURNAL</span></div>
       </section>
 
-      <div class="mode-note" v-if="!supabase"><span class="note-icon">ⓘ</span><p>지금은 <strong>이 브라우저에만 기록</strong>됩니다. 회원가입·로그인 기능은 일시 중단되어 있습니다. 공용 기기에서는 사용에 주의해주세요. 계정 저장을 다시 활성화해도 체험 기록은 자동 이전되지 않습니다.</p></div>
-      <div v-else-if="!user" class="mode-note"><span class="note-icon">ⓘ</span><p>로그인하고 나만의 운동 기록을 시작하세요. 내 기록은 다른 회원에게 공개되지 않습니다.</p><button class="text-button" @click="openAuth">로그인하기 →</button></div>
+      <div class="mode-note"><span class="note-icon">ⓘ</span><p v-if="supabase"><strong>공용 DB 체험 모드입니다.</strong> 모든 접속자가 같은 local 기록을 조회·추가·삭제할 수 있습니다. 개인·민감 정보를 기록하지 마세요. 로그인은 중단되어 있으며 기존 브라우저 기록은 삭제하거나 자동 업로드하지 않습니다.</p><p v-else><strong>DB 미설정</strong> 상태로 기록을 저장할 수 없습니다. 환경변수를 설정해주세요. 기존 브라우저 기록은 보존됩니다.</p></div>
       <div v-if="error" class="message message-error" role="alert">{{ error }} <button v-if="loadFailed" class="text-button" @click="loadRecords">다시 불러오기</button></div>
       <div v-if="notice" class="message message-success" role="status">{{ notice }}<button class="text-button" aria-label="알림 닫기" @click="notice = ''">×</button></div>
 
@@ -288,6 +443,7 @@ onUnmounted(() => {
                   <div class="record-title"><h4>{{ record.name }}</h4><span class="category-label">{{ record.category }}</span></div>
                   <div class="part-tags"><span v-for="part in record.body_parts" :key="part">{{ part }}</span></div>
                   <WodDetails v-if="record.record_type === 'wod'" :wod="record.wod" />
+                  <ul v-if="record.set_entries?.length" class="record-sets"><li v-for="(entry, index) in record.set_entries" :key="index">{{ index + 1 }}세트 · {{ entry.weight === null ? '중량 미입력' : `${entry.weight}kg` }} × {{ entry.reps }}회 · {{ entry.completed ? '완료 ✓' : '미완료' }}</li></ul>
                   <p v-if="record.duration || record.weight || record.sets || record.reps" class="record-metrics"><span v-if="record.duration">{{ record.duration }}분</span><span v-if="record.weight">{{ record.weight }}kg</span><span v-if="record.sets">{{ record.sets }}세트</span><span v-if="record.reps">{{ record.reps }}회{{ record.sets ? ' / 세트' : '' }}</span></p>
                   <p v-if="record.notes" class="record-notes">{{ record.notes }}</p>
                 </div>
@@ -313,23 +469,55 @@ onUnmounted(() => {
       <form @submit.prevent="saveRecord">
         <fieldset :disabled="busy"><legend>기록 유형</legend><div class="selection-chips"><button type="button" :class="{ selected: form.record_type === 'exercise' }" :aria-pressed="form.record_type === 'exercise'" @click="selectRecordType('exercise')">일반 운동</button><button type="button" :class="{ selected: form.record_type === 'wod' }" :aria-pressed="form.record_type === 'wod'" @click="selectRecordType('wod')">크로스핏 와드</button></div></fieldset>
         <label>운동 날짜 <span class="required">*</span><input v-model="form.workout_date" type="date" :max="today" required :disabled="busy"></label>
-        <label>{{ form.record_type === 'wod' ? '와드 이름' : '운동 이름' }} <span v-if="form.record_type === 'exercise'" class="required">*</span><input ref="nameInput" v-model="form.name" :placeholder="form.record_type === 'wod' ? '이름이 없으면 오늘의 와드로 저장해요' : '예: 백 스쿼트, 클린 앤 저크, 러닝'" maxlength="100" :required="form.record_type === 'exercise'" :disabled="busy"></label>
+        <div class="exercise-search">
+        <div class="exercise-combobox">
+        <label>{{ form.record_type === 'wod' ? '와드 이름' : '운동 이름' }} <span v-if="form.record_type === 'exercise'" class="required">*</span><input ref="nameInput" :value="form.name" :placeholder="form.record_type === 'wod' ? '이름이 없으면 오늘의 와드로 저장해요' : '운동 검색 · 초성 또는 직접 이름 입력'" maxlength="100" :required="form.record_type === 'exercise'" :disabled="busy" :role="form.record_type === 'exercise' ? 'combobox' : null" :aria-expanded="form.record_type === 'exercise' ? searchVisible : null" :aria-controls="searchVisible ? 'exercise-options' : null" :aria-activedescendant="searchVisible && searchIndex >= 0 ? `exercise-option-${searchIndex}` : null" aria-autocomplete="list" autocomplete="off" @focus="searchOpen = form.record_type === 'exercise'" @input="nameChanged" @compositionend="nameChanged" @blur="confirmName(); searchOpen = false" @keydown="nameKeydown"></label>
+          <div v-if="searchVisible" id="exercise-options" class="exercise-options" role="listbox" aria-label="운동 추천">
+            <button v-for="(item, index) in suggestions" :id="`exercise-option-${index}`" :key="favoriteKey(item)" type="button" role="option" :aria-selected="searchIndex === index" :disabled="busy || !!item.reason" @mousedown.prevent @click="chooseExercise(item)">{{ item.name }} <small>{{ item.source }} · {{ item.reason || `${item.category} / ${item.body_parts.join('·')}` }}</small></button>
+            <p v-if="!suggestions.length" class="field-hint">추천 운동이 없습니다. 입력한 이름 그대로 기록할 수 있습니다.</p>
+          </div>
+        </div>
+        <template v-if="form.record_type === 'exercise'">
+          <button type="button" class="text-button" :disabled="busy || favoritesFailed || !form.name.trim()" :aria-pressed="isFavorite" @click="toggleFavorite">{{ isFavorite ? '★ 즐겨찾기 해제' : '☆ 즐겨찾기 추가' }}</button>
+          <p v-if="catalogError" class="field-hint" role="status">{{ catalogError }} <button type="button" class="text-button" @click="loadCatalog">목록 다시 불러오기</button></p>
+          <p v-if="historyError" class="field-hint" role="status">{{ historyError }} <button type="button" class="text-button" @click="loadHistory(form.workout_date)">이력 다시 불러오기</button></p>
+          <p v-if="favoritesError" class="field-hint" role="status">{{ favoritesError }}</p>
+        </template>
+        </div>
+        <div v-if="form.record_type === 'wod'" class="template-options" aria-label="와드 템플릿">
+          <button v-for="template in templates" :key="template.name" type="button" class="button button-outline" :disabled="busy" @click="chooseTemplate(template)">{{ template.name }} 템플릿 · {{ template.type }}</button>
+          <p class="field-hint">템플릿은 버튼을 눌렀을 때만 적용됩니다. 수행 기준과 실제 중량을 직접 확인해주세요.</p>
+        </div>
+        <button type="button" class="button button-outline" :disabled="busy || copying || (form.record_type === 'exercise' && !form.name.trim())" @click="loadPrevious">{{ copying ? '이전 구성 조회 중…' : '이전 구성 불러오기' }}</button>
+        <p v-if="copyNotice" class="field-hint" role="status">{{ copyNotice }}</p>
+        <div v-if="copyCandidates.length" class="copy-candidates" aria-label="이전 와드 구성 후보"><p class="field-hint">같은 이름의 와드도 처방이 다를 수 있습니다. 구성을 확인하고 선택하세요.</p><button v-for="record in copyCandidates" :key="record.id" type="button" class="button button-outline" :disabled="busy" @click="applyPrevious(record)">{{ record.workout_date }} · {{ record.wod.type }} · {{ record.wod.prescription }}</button></div>
         <fieldset v-if="form.record_type === 'exercise'" :disabled="busy"><legend>운동 종류 <span class="required">*</span></legend><div class="selection-chips"><button v-for="category in categories.filter((value) => value !== '크로스핏 와드')" :key="category" type="button" :class="{ selected: form.category === category }" :aria-pressed="form.category === category" @click="form.category = category">{{ category }}</button></div></fieldset>
         <WodFields v-else :wod="form.wod" :busy="busy" />
         <fieldset :disabled="busy"><legend>운동 부위 <span class="required">*</span><small>여러 부위를 선택할 수 있어요</small></legend><div class="selection-chips"><button v-for="part in bodyParts" :key="part" type="button" :class="{ selected: form.body_parts.includes(part) }" :aria-pressed="form.body_parts.includes(part)" @click="togglePart(part)">{{ part }}<span v-if="form.body_parts.includes(part)"> ✓</span></button></div></fieldset>
         <div class="optional-heading">운동 상세 <span>선택 입력</span></div>
         <div class="form-grid">
-          <label>운동 시간 (분)<input v-model="form.duration" type="number" min="0.1" max="1440" step="0.1" placeholder="30" :disabled="busy"></label>
-          <template v-if="form.record_type === 'exercise'">
-            <label>중량 (kg)<input v-model="form.weight" type="number" min="0.1" max="2000" step="0.1" placeholder="60" :disabled="busy"></label><label>세트 수<input v-model="form.sets" type="number" min="1" max="1000" step="1" placeholder="5" :disabled="busy"></label><label>횟수 (세트당)<input v-model="form.reps" type="number" min="1" max="100000" step="1" placeholder="10" :disabled="busy"></label>
-          </template>
+          <label>운동 시간 (분)<div class="number-stepper"><button type="button" aria-label="운동 시간 감소" :disabled="busy" @click="form.duration = stepNumber(form.duration, -1, 0.1, 1440, 0.1)">−</button><input v-model="form.duration" aria-label="운동 시간 (분)" type="number" inputmode="decimal" min="0.1" max="1440" step="0.1" placeholder="30" :disabled="busy"><button type="button" aria-label="운동 시간 증가" :disabled="busy" @click="form.duration = stepNumber(form.duration, 1, 0.1, 1440, 0.1)">＋</button></div></label>
         </div>
+        <fieldset v-if="form.record_type === 'exercise'" class="set-fields" :disabled="busy"><legend>세트별 기록</legend>
+          <p class="field-hint">수행한 세트의 중량과 횟수를 입력하세요. 시간만 기록한다면 세트를 추가하지 않아도 됩니다.</p>
+          <div v-for="(entry, index) in form.set_entries" :key="index" class="set-row">
+            <div class="set-row-heading">
+              <strong>{{ index + 1 }}세트</strong>
+              <button type="button" class="text-button" :aria-label="`${index + 1}세트 삭제`" @click="form.set_entries.splice(index, 1)">×</button>
+            </div>
+            <div class="set-inputs">
+            <label>중량 (kg)<div class="number-stepper"><button type="button" :aria-label="`${index + 1}세트 중량 감소`" @click="entry.weight = stepNumber(entry.weight, -1, 0, 2000, 2.5)">−</button><input v-model="entry.weight" :aria-label="`${index + 1}세트 중량 (kg)`" type="number" inputmode="decimal" min="0" max="2000" step="0.1" placeholder="선택"><button type="button" :aria-label="`${index + 1}세트 중량 증가`" @click="entry.weight = stepNumber(entry.weight, 1, 0, 2000, 2.5)">＋</button></div></label>
+            <label>횟수<div class="number-stepper"><button type="button" :aria-label="`${index + 1}세트 횟수 감소`" @click="entry.reps = stepNumber(entry.reps, -1, 1, 100000)">−</button><input v-model="entry.reps" :aria-label="`${index + 1}세트 횟수`" type="number" inputmode="numeric" min="1" max="100000" step="1" required><button type="button" :aria-label="`${index + 1}세트 횟수 증가`" @click="entry.reps = stepNumber(entry.reps, 1, 1, 100000)">＋</button></div></label>
+            </div>
+          </div>
+          <button type="button" class="button button-outline" :disabled="form.set_entries.length >= 1000" @click="form.set_entries.push({ weight: '', reps: '', completed: true })">＋ 세트 추가</button>
+        </fieldset>
         <p v-if="form.record_type === 'wod'" class="field-hint">와드 전체를 한 기록으로 저장해요. 누적 시간에는 직접 입력한 운동 시간만 반영하며, 같은 와드의 동작을 일반 운동으로 중복 저장하지 마세요.</p>
         <label>오늘의 메모<textarea v-model="form.notes" maxlength="1000" rows="3" placeholder="컨디션, 느낀 점, 다음 운동의 목표를 남겨보세요." :disabled="busy"></textarea></label>
         <p v-if="formError" class="form-error" role="alert">{{ formError }}</p><div class="dialog-actions"><button class="button button-outline" type="button" :disabled="busy" @click="recordDialog.close()">취소</button><button class="button button-dark" type="submit" :disabled="busy">{{ busy ? '저장 중…' : '기록 저장하기 ↗' }}</button></div>
       </form>
     </dialog>
 
-    <dialog ref="authDialog" class="form-dialog auth-dialog" @cancel="busy && $event.preventDefault()"><div class="dialog-heading"><div><p class="eyebrow">WELCOME TO Ggamssi`s-Fit</p><h2>{{ authMode === 'login' ? '다시 만나 반가워요' : '나의 기록 시작하기' }}</h2></div><button class="close-button" :disabled="busy" aria-label="로그인 창 닫기" @click="authDialog.close()">×</button></div><p class="dialog-description">{{ authEnabled ? '로그인한 계정에 나만의 운동 기록을 보관합니다.' : '회원가입·로그인 기능은 현재 일시 중단되어 있습니다. 운동 기록은 로그인 없이 이 브라우저에 저장할 수 있습니다.' }}</p><form @submit.prevent="submitAuth"><label>이메일<input ref="emailInput" v-model="credentials.email" type="email" autocomplete="email" required :disabled="busy"></label><label>비밀번호<input v-model="credentials.password" type="password" :autocomplete="authMode === 'login' ? 'current-password' : 'new-password'" :minlength="authMode === 'login' ? 1 : 8" required :disabled="busy" placeholder="가입 시 8자 이상"></label><p v-if="authError" class="form-error" role="alert">{{ authError }}</p><button class="button button-dark full-width" :disabled="busy || !authEnabled">{{ busy ? '처리 중…' : authMode === 'login' ? '로그인' : '회원가입' }}</button><button type="button" class="text-button auth-switch" :disabled="busy" @click="authMode = authMode === 'login' ? 'signup' : 'login'; authError = ''">{{ authMode === 'login' ? '아직 계정이 없나요? 회원가입 →' : '이미 계정이 있나요? 로그인 →' }}</button></form></dialog>
+    <dialog ref="authDialog" class="form-dialog auth-dialog" @cancel="busy && $event.preventDefault()"><div class="dialog-heading"><div><p class="eyebrow">WELCOME TO Ggamssi`s-Fit</p><h2>{{ authMode === 'login' ? '다시 만나 반가워요' : '나의 기록 시작하기' }}</h2></div><button class="close-button" :disabled="busy" aria-label="로그인 창 닫기" @click="authDialog.close()">×</button></div><p class="dialog-description">회원가입·로그인 기능은 현재 일시 중단되어 있습니다. 운동 기록은 로그인 없이 공용 DB에 저장되며 모든 접속자에게 공개됩니다.</p><form @submit.prevent="submitAuth"><label>이메일<input ref="emailInput" v-model="credentials.email" type="email" autocomplete="email" required :disabled="busy"></label><label>비밀번호<input v-model="credentials.password" type="password" :autocomplete="authMode === 'login' ? 'current-password' : 'new-password'" :minlength="authMode === 'login' ? 1 : 8" required :disabled="busy" placeholder="가입 시 8자 이상"></label><p v-if="authError" class="form-error" role="alert">{{ authError }}</p><button class="button button-dark full-width" :disabled="busy || !authEnabled">{{ busy ? '처리 중…' : authMode === 'login' ? '로그인' : '회원가입' }}</button><button type="button" class="text-button auth-switch" :disabled="busy" @click="authMode = authMode === 'login' ? 'signup' : 'login'; authError = ''">{{ authMode === 'login' ? '아직 계정이 없나요? 회원가입 →' : '이미 계정이 있나요? 로그인 →' }}</button></form></dialog>
   </div>
 </template>

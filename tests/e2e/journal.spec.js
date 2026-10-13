@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect } from './db.js'
 
 async function addExercise(page, name, category, parts, details = {}) {
   await page.getByRole('button', { name: /운동 기록하기/ }).first().click()
@@ -6,6 +6,14 @@ async function addExercise(page, name, category, parts, details = {}) {
   await dialog.getByLabel('운동 이름').fill(name)
   await dialog.getByRole('button', { name: category, exact: true }).click()
   for (const part of parts) await dialog.getByRole('button', { name: part, exact: true }).click()
+  if (details['세트 수']) {
+    for (let index = 1; index <= Number(details['세트 수']); index++) {
+      await dialog.getByRole('button', { name: '＋ 세트 추가' }).click()
+      await dialog.getByLabel(`${index}세트 중량 (kg)`, { exact: true }).fill(details['중량 (kg)'])
+      await dialog.getByLabel(`${index}세트 횟수`, { exact: true }).fill(details['횟수 (세트당)'])
+    }
+    details = Object.fromEntries(Object.entries(details).filter(([key]) => !['세트 수', '중량 (kg)', '횟수 (세트당)'].includes(key)))
+  }
   for (const [label, value] of Object.entries(details)) await dialog.getByLabel(label, { exact: true }).fill(value)
   await dialog.getByRole('button', { name: '기록 저장하기' }).click()
   await expect(dialog).not.toBeVisible()
@@ -19,7 +27,7 @@ test('여러 종류와 부위를 기록하고 필터, 요약, 새로고침, 삭�
   await expect(page).toHaveTitle('Ggamssi`s-Fit | 운동 다이어리')
   await expect(page.getByRole('link', { name: 'Ggamssi-Fit 홈', exact: true })).toBeVisible()
   await expect(page.locator('.footer-brand')).toContainText('Ggamssi`s-Fit')
-  await expect(page.getByText('로컬 체험 모드')).toBeVisible()
+  await expect(page.getByText('공용 DB 모드', { exact: true })).toBeVisible()
   await addExercise(page, '백 스쿼트', '웨이트', ['하체', '코어'], { '운동 시간 (분)': '30', '중량 (kg)': '60', '세트 수': '5', '횟수 (세트당)': '5' })
   await addExercise(page, '러닝', '유산소', ['전신'], { '운동 시간 (분)': '20' })
   await expect(page.locator('.stat-card').nth(0).locator('strong')).toHaveText('1')
@@ -68,10 +76,9 @@ test('과거 기록을 월별·날짜별로 조회한다', async ({ page }) => {
   await expect(page.locator('.record-card')).toHaveCount(1)
 })
 
-test('손상된 저장소를 덮어쓰지 않는다', async ({ page }) => {
+test('손상된 기존 브라우저 기록을 읽거나 덮어쓰지 않는다', async ({ page }) => {
   await page.addInitScript(() => window.localStorage.setItem('teamk.exercise.records.v1', '{bad'))
   await page.goto('/')
-  await expect(page.getByRole('alert')).toContainText('기존 기록 보호')
-  await expect(page.getByRole('button', { name: /운동 기록하기/ }).first()).toBeDisabled()
+  await expect(page.getByRole('button', { name: /운동 기록하기/ }).first()).toBeEnabled()
   expect(await page.evaluate(() => localStorage.getItem('teamk.exercise.records.v1'))).toBe('{bad')
 })
