@@ -1,9 +1,11 @@
 <script setup>
 import { computed } from 'vue'
 import { stepNumber } from '../lib/workouts.js'
+import { createWodTeam, teamRules } from '../lib/wod.js'
 
 const props = defineProps({
   wod: { type: Object, required: true },
+  team: { type: Object, required: true },
   busy: { type: Boolean, default: false },
 })
 
@@ -22,6 +24,17 @@ const statuses = computed(() =>
         { value: 'stopped', label: '중도 종료' },
       ],
 )
+
+function changeMode(mode) {
+  if (props.busy || props.team.wod_mode === mode) return
+  Object.assign(props.team, createWodTeam(), mode === 'team' ? { wod_mode: 'team', team_size: 2 } : {})
+}
+
+function toggleRule(rule) {
+  if (props.busy) return
+  props.team.team_rules = props.team.team_rules.includes(rule)
+    ? props.team.team_rules.filter((value) => value !== rule) : [...props.team.team_rules, rule]
+}
 
 function changeType(newType) {
   if (props.busy || props.wod.type === newType) return
@@ -47,6 +60,24 @@ function changeType(newType) {
 
 <template>
   <div class="wod-fields">
+    <fieldset :disabled="busy">
+      <legend>참여 방식</legend>
+      <div class="selection-chips" role="group" aria-label="참여 방식">
+        <button type="button" :class="{ selected: team.wod_mode === 'individual' }" :aria-pressed="team.wod_mode === 'individual'" @click="changeMode('individual')">개인전</button>
+        <button type="button" :class="{ selected: team.wod_mode === 'team' }" :aria-pressed="team.wod_mode === 'team'" @click="changeMode('team')">팀 와드</button>
+      </div>
+      <template v-if="team.wod_mode === 'team'">
+        <label>팀 규모 (본인 포함)
+          <select v-model.number="team.team_size">
+            <option v-for="size in 19" :key="size" :value="size + 1">{{ size + 1 }}인 1조</option>
+          </select>
+        </label>
+        <label>팀원 / 파트너 (선택)
+          <input v-model="team.team_partners" maxlength="500" placeholder="예: 잼민이, 운동친구" aria-describedby="team-partners-hint" />
+        </label>
+        <p id="team-partners-hint" class="field-hint">함께한 파트너의 닉네임을 자유롭게 적어주세요. 공용 기록에 공개되므로 실명·연락처는 피해주세요. 사용자 계정 태그 기능은 제공하지 않습니다.</p>
+      </template>
+    </fieldset>
     <fieldset :disabled="busy">
       <legend>와드 방식</legend>
       <div class="selection-chips">
@@ -76,6 +107,13 @@ function changeType(newType) {
         ></textarea>
       </label>
       <p class="field-hint">원래 정해진 동작·횟수·중량·거리를 적어주세요. 중량은 kg 또는 lb 단위를 함께 표시해주세요.</p>
+      <fieldset v-if="team.wod_mode === 'team'" :disabled="busy">
+        <legend>팀 수행 규칙 <small>복수 선택 가능</small></legend>
+        <div class="selection-chips" role="group" aria-label="팀 수행 규칙">
+          <button v-for="rule in teamRules" :key="rule.value" type="button" :class="{ selected: team.team_rules.includes(rule.value) }" :aria-pressed="team.team_rules.includes(rule.value)" @click="toggleRule(rule.value)">{{ rule.label }}</button>
+        </div>
+        <p class="field-hint">동작별 규칙이 다르면 함께 선택하고, 분배·교대 조건은 운동 구성에 적어주세요.</p>
+      </fieldset>
     </fieldset>
 
     <fieldset :disabled="busy">
@@ -147,6 +185,7 @@ function changeType(newType) {
 
     <fieldset :disabled="busy">
       <legend>수행 결과 · {{ wod.type }}</legend>
+      <p v-if="team.wod_mode === 'team'" class="field-hint team-result-guide" role="note">팀 전체 라운드/시간/수행 결과를 입력하세요. 개인별 기록이 아닌 팀의 총 기록으로 저장합니다.</p>
       <div
         v-if="wod.type === 'EMOM' || wod.type === 'FOR TIME'"
         class="selection-chips"

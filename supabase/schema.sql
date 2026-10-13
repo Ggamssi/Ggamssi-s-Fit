@@ -1,4 +1,4 @@
--- Fresh installations only. Use migrations/20261013_public_local.sql for existing tables.
+-- Fresh installations only. For existing tables, run migrations/20261013_public_local.sql then migrations/20261013_team_wod.sql.
 begin;
 set local lock_timeout = '5s';
 
@@ -29,6 +29,26 @@ create table public.exercise_records (
 alter table public.exercise_records add column if not exists record_type text not null default 'exercise' check (record_type in ('exercise', 'wod'));
 alter table public.exercise_records add column if not exists wod jsonb;
 alter table public.exercise_records add column if not exists set_entries jsonb;
+alter table public.exercise_records add column if not exists wod_mode text not null default 'individual';
+alter table public.exercise_records add column if not exists team_size integer not null default 1;
+alter table public.exercise_records add column if not exists team_partners text not null default '';
+alter table public.exercise_records add column if not exists team_rules text[] not null default '{}';
+alter table public.exercise_records add constraint exercise_records_team_wod_check check (
+  wod_mode in ('individual', 'team')
+  and char_length(team_partners) <= 500
+  and team_rules <@ array['partition', 'you_go_i_go', 'synchro']::text[]
+  and cardinality(team_rules) between 0 and 3
+  -- Counting distinct allowed values rejects both duplicates and NULL elements.
+  and cardinality(team_rules) = (
+    case when team_rules @> array['partition']::text[] then 1 else 0 end
+    + case when team_rules @> array['you_go_i_go']::text[] then 1 else 0 end
+    + case when team_rules @> array['synchro']::text[] then 1 else 0 end
+  )
+  and (
+    (wod_mode = 'individual' and team_size = 1 and team_partners = '' and cardinality(team_rules) = 0)
+    or (wod_mode = 'team' and record_type = 'wod' and team_size between 2 and 20)
+  )
+);
 alter table public.exercise_records drop constraint if exists exercise_records_category_check;
 alter table public.exercise_records add constraint exercise_records_category_check check (category in ('역도', '웨이트', '유산소', '맨몸', '스트레칭', '기타', '크로스핏 와드'));
 alter table public.exercise_records drop constraint if exists exercise_records_wod_check;

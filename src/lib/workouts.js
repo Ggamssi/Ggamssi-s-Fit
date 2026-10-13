@@ -1,4 +1,4 @@
-import { clearWodResults, normalizeWod, validateWod } from './wod.js'
+import { clearWodResults, normalizeWod, normalizeWodTeam, validateWod, validateWodTeam } from './wod.js'
 import { canonicalName, searchName } from './exerciseCatalog.js'
 
 export const categories = ['역도', '웨이트', '유산소', '맨몸', '스트레칭', '기타', '크로스핏 와드']
@@ -18,6 +18,8 @@ export function validateRecord(record, today = localDate()) {
   if (record.workout_date > today) return '미래 날짜에는 기록할 수 없습니다.'
   const isWod = record.record_type === 'wod'
   if (record.record_type != null && !['exercise', 'wod'].includes(record.record_type)) return '기록 유형을 선택해주세요.'
+  const teamError = validateWodTeam(record)
+  if (teamError) return teamError
   if (typeof record.name !== 'string' || (!isWod && !record.name.trim()) || record.name.trim().length > 100) return '운동 이름은 1~100자로 입력해주세요.'
   if (isWod) {
     if (record.category !== '크로스핏 와드') return '와드 기록의 운동 종류를 확인해주세요.'
@@ -54,7 +56,7 @@ export function validateRecord(record, today = localDate()) {
 
 export function normalizeRecord(record) {
   const isWod = record.record_type === 'wod'
-  const result = { workout_date: record.workout_date, category: record.category, record_type: isWod ? 'wod' : 'exercise', wod: isWod ? normalizeWod(record.wod) : null, name: record.name.trim() || (isWod ? '오늘의 와드' : ''), notes: record.notes.trim(), body_parts: [...record.body_parts] }
+  const result = { workout_date: record.workout_date, category: record.category, record_type: isWod ? 'wod' : 'exercise', wod: isWod ? normalizeWod(record.wod) : null, name: record.name.trim() || (isWod ? '오늘의 와드' : ''), notes: record.notes.trim(), body_parts: [...record.body_parts], ...normalizeWodTeam(record) }
   result.set_entries = !isWod && record.set_entries != null ? record.set_entries.map((entry) => ({ weight: entry.weight === '' || entry.weight === null ? null : Number(entry.weight), reps: Number(entry.reps), completed: entry.completed })) : null
   for (const key of ['duration', 'weight', 'sets', 'reps']) {
     result[key] = ((isWod || result.set_entries !== null) && key !== 'duration') || record[key] === '' || record[key] === null || record[key] === undefined ? null : Number(record[key])
@@ -107,7 +109,7 @@ export function previousConfigurations(records, form) {
 
 export function copyConfiguration(record) {
   const result = { category: record.category, body_parts: [...record.body_parts] }
-  if (record.record_type === 'wod') return { values: { ...result, wod: clearWodResults(record.wod), set_entries: null }, warning: '' }
+  if (record.record_type === 'wod') return { values: { ...result, ...normalizeWodTeam(record), wod: clearWodResults(record.wod), set_entries: null }, warning: '' }
   let warning = ''
   let entries = []
   if (Array.isArray(record.set_entries)) entries = record.set_entries.map((entry) => ({ weight: entry.weight ?? '', reps: entry.reps, completed: false }))

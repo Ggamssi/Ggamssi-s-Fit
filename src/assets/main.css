@@ -153,7 +153,7 @@ footer small { margin-left: auto; font-size: 8px; letter-spacing: 1.5px; }
 .form-dialog label { display: flex; flex-direction: column; gap: 9px; font-size: 12px; font-weight: 600; }
 .form-dialog label .required { display: contents; }
 .required { color: #849e56; }
-.form-dialog input, .form-dialog textarea { width: 100%; border: 1px solid #dde3d3; border-radius: 6px; padding: 11px 12px; font-size: 13px; background: #fafbf8; color: var(--ink); font-weight: 400; }
+.form-dialog input, .form-dialog textarea, .form-dialog select { width: 100%; border: 1px solid #dde3d3; border-radius: 6px; padding: 11px 12px; font-size: 13px; background: #fafbf8; color: var(--ink); font-weight: 400; }
 .form-dialog input::placeholder, .form-dialog textarea::placeholder { color: #a6af9a; font-size: 12px; }
 .form-dialog textarea { resize: vertical; min-height: 80px; }
 fieldset { border: 0; margin: 0; padding: 0; }

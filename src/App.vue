@@ -3,7 +3,7 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref, watch } from
 import { authEnabled, publicOwner, recordColumns, recordsTable, supabase } from './lib/supabase.js'
 import { bodyParts, categories, copyConfiguration, localDate, normalizeRecord, previousConfigurations, readFavorites, recentExercises, stepNumber, summarizeRecords, validateRecord, writeFavorites } from './lib/workouts.js'
 import { canonicalName, catalogItem, exerciseSuggestions, favoriteKey } from './lib/exerciseCatalog.js'
-import { createWod, templateWod, wodTemplates } from './lib/wod.js'
+import { createWod, createWodTeam, templateWod, wodTemplates } from './lib/wod.js'
 import WodFields from './components/WodFields.vue'
 import WodDetails from './components/WodDetails.vue'
 
@@ -40,7 +40,7 @@ const nameInput = ref(null)
 const emailInput = ref(null)
 const authMode = ref('login')
 const credentials = reactive({ email: '', password: '' })
-const form = reactive({ workout_date: today.value, name: '', category: '웨이트', body_parts: [], duration: '', weight: '', sets: '', reps: '', set_entries: [], notes: '', record_type: 'exercise', wod: createWod() })
+const form = reactive({ workout_date: today.value, name: '', category: '웨이트', body_parts: [], duration: '', weight: '', sets: '', reps: '', set_entries: [], notes: '', record_type: 'exercise', wod: createWod(), ...createWodTeam() })
 let subscription
 let requestVersion = 0
 let clock
@@ -251,7 +251,7 @@ async function loadRecords() {
 async function openRecord() {
   today.value = localDate()
   if (!supabase || loading.value || loadFailed.value) return
-  Object.assign(form, { workout_date: selectedDay.value || today.value, name: '', category: '웨이트', body_parts: [], duration: '', weight: '', sets: '', reps: '', set_entries: [], notes: '', record_type: 'exercise', wod: createWod() })
+  Object.assign(form, { workout_date: selectedDay.value || today.value, name: '', category: '웨이트', body_parts: [], duration: '', weight: '', sets: '', reps: '', set_entries: [], notes: '', record_type: 'exercise', wod: createWod(), ...createWodTeam() })
   formError.value = ''
   mappedName = ''
   searchOpen.value = false
@@ -275,6 +275,7 @@ function selectRecordType(type) {
   form.sets = ''
   form.reps = ''
   form.set_entries = type === 'wod' ? null : []
+  if (type !== 'wod') Object.assign(form, createWodTeam())
   formError.value = ''
   searchOpen.value = false
   mappedName = ''
@@ -442,7 +443,7 @@ onUnmounted(() => {
                 <div class="record-main">
                   <div class="record-title"><h4>{{ record.name }}</h4><span class="category-label">{{ record.category }}</span></div>
                   <div class="part-tags"><span v-for="part in record.body_parts" :key="part">{{ part }}</span></div>
-                  <WodDetails v-if="record.record_type === 'wod'" :wod="record.wod" />
+                  <WodDetails v-if="record.record_type === 'wod'" :wod="record.wod" :team="record" />
                   <ul v-if="record.set_entries?.length" class="record-sets"><li v-for="(entry, index) in record.set_entries" :key="index">{{ index + 1 }}세트 · {{ entry.weight === null ? '중량 미입력' : `${entry.weight}kg` }} × {{ entry.reps }}회 · {{ entry.completed ? '완료 ✓' : '미완료' }}</li></ul>
                   <p v-if="record.duration || record.weight || record.sets || record.reps" class="record-metrics"><span v-if="record.duration">{{ record.duration }}분</span><span v-if="record.weight">{{ record.weight }}kg</span><span v-if="record.sets">{{ record.sets }}세트</span><span v-if="record.reps">{{ record.reps }}회{{ record.sets ? ' / 세트' : '' }}</span></p>
                   <p v-if="record.notes" class="record-notes">{{ record.notes }}</p>
@@ -492,7 +493,7 @@ onUnmounted(() => {
         <p v-if="copyNotice" class="field-hint" role="status">{{ copyNotice }}</p>
         <div v-if="copyCandidates.length" class="copy-candidates" aria-label="이전 와드 구성 후보"><p class="field-hint">같은 이름의 와드도 처방이 다를 수 있습니다. 구성을 확인하고 선택하세요.</p><button v-for="record in copyCandidates" :key="record.id" type="button" class="button button-outline" :disabled="busy" @click="applyPrevious(record)">{{ record.workout_date }} · {{ record.wod.type }} · {{ record.wod.prescription }}</button></div>
         <fieldset v-if="form.record_type === 'exercise'" :disabled="busy"><legend>운동 종류 <span class="required">*</span></legend><div class="selection-chips"><button v-for="category in categories.filter((value) => value !== '크로스핏 와드')" :key="category" type="button" :class="{ selected: form.category === category }" :aria-pressed="form.category === category" @click="form.category = category">{{ category }}</button></div></fieldset>
-        <WodFields v-else :wod="form.wod" :busy="busy" />
+        <WodFields v-else :wod="form.wod" :team="form" :busy="busy" />
         <fieldset :disabled="busy"><legend>운동 부위 <span class="required">*</span><small>여러 부위를 선택할 수 있어요</small></legend><div class="selection-chips"><button v-for="part in bodyParts" :key="part" type="button" :class="{ selected: form.body_parts.includes(part) }" :aria-pressed="form.body_parts.includes(part)" @click="togglePart(part)">{{ part }}<span v-if="form.body_parts.includes(part)"> ✓</span></button></div></fieldset>
         <div class="optional-heading">운동 상세 <span>선택 입력</span></div>
         <div class="form-grid">

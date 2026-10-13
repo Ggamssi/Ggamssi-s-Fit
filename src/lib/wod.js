@@ -1,5 +1,33 @@
 export const wodTypes = ['AMRAP', 'EMOM', 'FOR TIME', '기타']
 
+export const teamRules = [
+  { value: 'partition', label: '자율 분배' },
+  { value: 'you_go_i_go', label: 'You Go I Go (교대)' },
+  { value: 'synchro', label: '싱크로 (동시 수행)' },
+]
+
+export function createWodTeam() {
+  return { wod_mode: 'individual', team_size: 1, team_partners: '', team_rules: [] }
+}
+
+export function validateWodTeam(record) {
+  const mode = record.wod_mode ?? 'individual'
+  if (!['individual', 'team'].includes(mode)) return '참여 방식을 선택해주세요.'
+  if (mode !== 'team') return ''
+  if (record.record_type !== 'wod') return '팀 정보는 와드에만 입력할 수 있습니다.'
+  if (!hasNumber(record.team_size, 2, 20)) return '팀 규모는 본인을 포함해 2~20명의 정수로 입력해주세요.'
+  if (!hasText(record.team_partners, 500)) return '파트너는 500자 이내로 입력해주세요.'
+  if (!Array.isArray(record.team_rules) || record.team_rules.some((rule) => !teamRules.some((item) => item.value === rule))
+    || new Set(record.team_rules).size !== record.team_rules.length) return '팀 수행 규칙을 확인해주세요.'
+  return ''
+}
+
+export function normalizeWodTeam(record) {
+  return record.record_type === 'wod' && record.wod_mode === 'team'
+    ? { wod_mode: 'team', team_size: Number(record.team_size), team_partners: record.team_partners.trim(), team_rules: [...record.team_rules] }
+    : createWodTeam()
+}
+
 export function createWod() {
   return {
     type: 'AMRAP', prescription: '', scaling: 'Rx', modifications: '',

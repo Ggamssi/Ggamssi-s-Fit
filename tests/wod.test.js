@@ -1,12 +1,51 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { clearWodResults, createWod, normalizeWod, templateWod, validateWod, wodTemplates } from '../src/lib/wod.js'
-import { normalizeRecord, readLocalRecords, summarizeRecords, validateRecord, writeLocalRecords } from '../src/lib/workouts.js'
+import { clearWodResults, createWod, createWodTeam, normalizeWod, templateWod, validateWod, wodTemplates } from '../src/lib/wod.js'
+import { copyConfiguration, normalizeRecord, readLocalRecords, summarizeRecords, validateRecord, writeLocalRecords } from '../src/lib/workouts.js'
 
 const amrap = () => ({ ...createWod(), prescription: '10 thrusters 35kg / 10 pull-ups', time_limit: '12', rounds: '5', extra_reps: '8' })
 const emom = () => ({ ...createWod(), type: 'EMOM', prescription: '홀수 분: 로잉 12cal\n짝수 분: 버피 10회', total_minutes: '15', intervals_completed: '13', status: 'partial', shortfalls: '14, 15분 버피 미달' })
 const forTime = () => ({ ...createWod(), type: 'FOR TIME', prescription: '5 rounds: 400m run, 15 squats', target_rounds: '5', time_cap: '15', finish_minutes: '9', finish_seconds: '42' })
 const wodRecord = (wod = amrap()) => ({ workout_date: '2026-10-13', name: '', category: '크로스핏 와드', body_parts: ['전신'], duration: '12', weight: '60', sets: '5', reps: '10', notes: '', record_type: 'wod', wod })
+
+test('팀 정보와 모든 방식의 팀 총 결과를 저장하며 복사 시 결과만 초기화한다', () => {
+  for (const wod of [amrap(), emom(), forTime(), { ...createWod(), type: '기타', prescription: '팀 와드', result: '150회' }]) {
+    const source = { ...wodRecord(wod), wod_mode: 'team', team_size: '3', team_partners: ' 잼민이, 운동친구 ', team_rules: ['partition', 'synchro'] }
+    assert.equal(validateRecord(source, '2026-10-13'), '')
+    const saved = normalizeRecord(source)
+    assert.equal(saved.team_size, 3)
+    assert.equal(saved.team_partners, '잼민이, 운동친구')
+    assert.deepEqual(saved.team_rules, source.team_rules)
+    assert.notEqual(saved.team_rules, source.team_rules)
+    assert.equal(validateRecord(saved, '2026-10-13'), '')
+    const copied = copyConfiguration(saved).values
+    assert.equal(copied.wod_mode, 'team')
+    assert.equal(copied.team_size, 3)
+    assert.equal(copied.team_partners, saved.team_partners)
+    assert.deepEqual(copied.team_rules, saved.team_rules)
+    copied.team_rules.push('you_go_i_go')
+    assert.equal(saved.team_rules.length, 2)
+    for (const key of ['rounds', 'finish_minutes', 'intervals_completed', 'result']) assert.equal(copied.wod[key], '')
+  }
+})
+
+test('팀 규모·파트너·규칙의 잘못된 입력을 거절한다', () => {
+  const source = { ...wodRecord(), wod_mode: 'team', team_size: 2, team_partners: '', team_rules: [] }
+  for (const change of [{ wod_mode: 'unknown' }, { team_size: 1 }, { team_size: 21 }, { team_size: 2.5 }, { team_size: '' }, { team_size: true }, { team_partners: null }, { team_partners: 'x'.repeat(501) }, { team_rules: null }, { team_rules: ['unknown'] }, { team_rules: ['synchro', 'synchro'] }, { record_type: 'exercise' }]) {
+    assert.notEqual(validateRecord({ ...source, ...change }, '2026-10-13'), '', JSON.stringify(change))
+  }
+  assert.equal(validateRecord({ ...source, team_size: 20, team_partners: 'x'.repeat(500), team_rules: ['partition', 'you_go_i_go', 'synchro'] }, '2026-10-13'), '')
+})
+
+test('구형 기록은 개인전으로 호환하고 개인전 전환 시 숨은 팀 정보를 저장하지 않는다', () => {
+  const source = wodRecord()
+  for (const record of [source, { ...source, wod_mode: 'individual', team_size: 3, team_partners: '이전 파트너', team_rules: ['synchro'] }]) {
+    assert.equal(validateRecord(record, '2026-10-13'), '')
+    const saved = normalizeRecord(record)
+    for (const [key, value] of Object.entries(createWodTeam())) assert.deepEqual(saved[key], value)
+  }
+  assert.equal(copyConfiguration(source).values.wod_mode, 'individual')
+})
 
 test('Fran·Cindy 템플릿은 설정만 제공하고 결과와 변경 내용을 비운다', () => {
   const fran = templateWod(wodTemplates[0], 'Scaled')

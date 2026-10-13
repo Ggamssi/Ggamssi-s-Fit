@@ -1,8 +1,10 @@
 <script setup>
 import { computed } from 'vue'
+import { teamRules } from '../lib/wod.js'
 
 const props = defineProps({
   wod: { type: Object, required: true },
+  team: { type: Object, default: () => ({}) },
 })
 
 const statusLabel = computed(() => {
@@ -31,6 +33,13 @@ const resultText = computed(() => {
 <template>
   <div class="wod-details">
     <p class="category-label">{{ wod.type }} · {{ wod.scaling }}</p>
+    <p class="category-label">{{ team.wod_mode === 'team' ? `팀 와드 · ${team.team_size}인 1조` : '개인전' }}</p>
+    <template v-if="team.wod_mode === 'team'">
+      <p v-if="team.team_partners" class="record-notes">파트너: {{ team.team_partners }}</p>
+      <div class="part-tags" aria-label="팀 수행 규칙">
+        <template v-for="rule in teamRules" :key="rule.value"><span v-if="team.team_rules?.includes(rule.value)">{{ rule.label }}</span></template>
+      </div>
+    </template>
 
     <div class="record-metrics">
       <p v-if="wod.type === 'AMRAP'">제한 시간: {{ wod.time_limit }}분</p>
@@ -48,7 +57,7 @@ const resultText = computed(() => {
       </template>
     </div>
 
-    <p class="category-label">결과</p>
+    <p class="category-label">{{ team.wod_mode === 'team' ? '팀 전체 결과' : '결과' }}</p>
     <p class="record-notes">{{ resultText }}</p>
 
     <template v-if="wod.progress && (wod.type === 'AMRAP' || (wod.type === 'FOR TIME' && wod.status !== 'completed'))">

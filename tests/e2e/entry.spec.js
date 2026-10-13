@@ -206,7 +206,7 @@ test('와드 템플릿 선택·교체 취소·결과 초기화와 DB 왕복', as
   await dialog.getByRole('button', { name: '크로스핏 와드', exact: true }).click()
   await dialog.getByLabel('와드 이름').fill('프란')
   await expect(dialog.getByLabel('운동 구성')).toHaveValue('')
-  await expect(dialog.locator('.wod-fields legend')).toContainText(['와드 방식', '와드 구성', '수행 기준', '와드 설정', '수행 결과'])
+  await expect(dialog.locator('.wod-fields legend')).toContainText(['참여 방식', '와드 방식', '와드 구성', '수행 기준', '와드 설정', '수행 결과'])
   await expect(dialog).toContainText('Rx: 정해진 구성 그대로 수행')
   await dialog.getByRole('button', { name: /Fran 템플릿/ }).click()
   await expect(dialog.getByLabel('운동 구성')).toHaveValue(/21-15-9/)
