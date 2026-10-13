@@ -1,0 +1,32 @@
+import { test, expect } from '@playwright/test'
+
+test('인증 창은 유지하지만 제출과 Supabase 요청은 중단한다', async ({ page }) => {
+  const requests = []
+  page.on('request', (request) => {
+    if (request.url().includes('.supabase.co')) requests.push(request.url())
+  })
+  await page.goto('/')
+  await page.getByRole('button', { name: '로그인 / 가입', exact: true }).click()
+  const dialog = page.locator('.auth-dialog')
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toContainText('현재 일시 중단')
+  await dialog.getByLabel('이메일').fill('paused@example.com')
+  await dialog.getByLabel('비밀번호').fill('password123')
+  await expect(dialog.getByRole('button', { name: '로그인', exact: true })).toBeDisabled()
+  await dialog.locator('form').evaluate((form) => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+  await expect(dialog.getByRole('alert')).toContainText('일시 중단')
+  await dialog.getByRole('button', { name: '아직 계정이 없나요? 회원가입 →' }).click()
+  await expect(dialog.getByRole('heading')).toHaveText('나의 기록 시작하기')
+  await expect(dialog.getByRole('button', { name: '회원가입', exact: true })).toBeDisabled()
+  await dialog.locator('form').evaluate((form) => form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })))
+  await expect(dialog.getByRole('alert')).toContainText('일시 중단')
+  await dialog.getByRole('button', { name: '이미 계정이 있나요? 로그인 →' }).click()
+  await expect(dialog.getByRole('heading')).toHaveText('다시 만나 반가워요')
+  await dialog.getByRole('button', { name: '로그인 창 닫기' }).click()
+  await page.getByRole('button', { name: /운동 기록하기/ }).first().click()
+  await expect(page.locator('dialog[open]')).toContainText('오늘 어떤 움직임을 만들었나요?')
+  await page.getByRole('button', { name: '기록 창 닫기' }).click()
+  await page.reload()
+  await expect(page.getByText('로컬 체험 모드')).toBeVisible()
+  expect(requests).toEqual([])
+})
